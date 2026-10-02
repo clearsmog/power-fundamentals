@@ -53,11 +53,31 @@ What it shows:
 - **Merit order.** Residual load and gas SRMC explain 53% to 77% of hourly price variance. In Germany each extra GW of residual load adds about EUR 3/MWh, and the curve steepens sharply above about 45 GW (`output/de_merit_order_q3_2026.png`).
 - **Gas plant economics follow a duck curve.** The German clean spark spread averages negative in both baseload and the 08:00–20:00 weekday peak block, because solar depresses the midday hours (2025 mean at 13:00: EUR −57/MWh). A standard CCGT earns in the morning and evening ramps instead (2025 mean at 19:00: EUR +33/MWh): the spread was positive in 37% of 2025 hours, averaging EUR +28/MWh in those hours (`scripts/export_web.py`).
 
+## Hedging a solar asset with baseload futures
+
+`powerfund/hedge.py` backtests a notional 100 MW German solar asset (hourly output = national solar output ÷ installed AC capacity, from Energy-Charts) over the 33 months January 2024 – September 2026. Each month the owner sells a baseload forward for h × expected output and is judged on revenue versus a budget set at the start of the month:
+
+- expected output = same month last year's capacity factor × capacity × hours;
+- forward price = last month's realised baseload average (proxy: there is no free history of EEX month futures);
+- expected capture rate = same month last year's;
+- budget = expected output × forward × expected capture rate.
+
+| Hedge (share of expected volume) | Revenue vs budget, std | Worst month |
+|---|---|---|
+| 0% (merchant) | 37.6% | −49.9% |
+| 70% | 26.1% | −44.2% |
+| **100%** | **24.4%** | −43.2% |
+| Capture-weighted (≈72%) | 29.2% | −44.9% |
+
+- **Hedge volume, not value.** The variance-minimising ratio is 80–110% of expected volume across three forward proxies (previous month, trailing three months, seasonally adjusted). Hedging only the capture-weighted share leaves more risk. The reason: solar's capture price moves almost one-for-one in euros with baseload (slope 0.95), so the shape discount behaves like a fixed euro amount rather than a fixed percentage, and price surprises and capture surprises are positively correlated (0.48).
+- **Shape is the largest risk, and baseload cannot hedge it.** Of the unhedged revenue variance, 48–56% is shape (capture rate vs expectation), 31–44% price and 8–13% volume. The best baseload hedge cuts variance by about a third, but the worst month is still 43% below budget: the case for shaped products, PPAs priced on capture and co-located storage.
+
 ## Caveats
 
 - Since 1 October 2025 the day-ahead market clears in 15-minute periods; hourly averages smooth intra-hour negatives, so negative-hour counts from Q4 2025 onward can differ from counts on 15-minute data.
 - The EUA series is an exchange-traded proxy, not the ICE EUA futures settlement.
 - TTF is the front-month contract, not day-ahead gas.
+- The hedge backtest uses a forward-price proxy, not traded EEX settlements, and a national solar profile, not a single site; 33 months is a short sample.
 - The ±15% band test cannot tell gas from coal or imports when they clear at a similar level.
 
 ## Run
