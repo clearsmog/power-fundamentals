@@ -51,7 +51,7 @@ What it shows:
 - **Negative prices spread south.** Spain had no negative hour in 2023 and 747 in the first nine months of 2026.
 - **Wind holds up.** Wind capture rates stay at 0.84 to 0.97, because wind output is less concentrated in the cheapest hours than solar.
 - **Merit order.** Residual load and gas SRMC explain 53% to 77% of hourly price variance. In Germany each extra GW of residual load adds about EUR 3/MWh, and the curve steepens sharply above about 45 GW (`output/de_merit_order_q3_2026.png`).
-- **Gas plant economics.** The German baseload clean spark spread stays mostly negative on a 30-day average: a standard CCGT earns its margin in peak hours, not baseload (`output/de_clean_spark_spread.png`).
+- **Gas plant economics follow a duck curve.** The German clean spark spread averages negative in both baseload and the 08:00–20:00 weekday peak block, because solar depresses the midday hours (2025 mean at 13:00: EUR −57/MWh). A standard CCGT earns in the morning and evening ramps instead (2025 mean at 19:00: EUR +33/MWh): the spread was positive in 37% of 2025 hours, averaging EUR +28/MWh in those hours (`scripts/export_web.py`).
 
 ## Caveats
 
