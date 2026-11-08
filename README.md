@@ -72,6 +72,54 @@ What it shows:
 - **Hedge volume, not value.** The variance-minimising ratio is 80–110% of expected volume across three forward proxies (previous month, trailing three months, seasonally adjusted). Hedging only the capture-weighted share leaves more risk. The reason: solar's capture price moves almost one-for-one in euros with baseload (slope 0.95), so the shape discount behaves like a fixed euro amount rather than a fixed percentage, and price surprises and capture surprises are positively correlated (0.48).
 - **Shape is the largest risk, and baseload cannot hedge it.** Of the unhedged revenue variance, 48–56% is shape (capture rate vs expectation), 31–44% price and 8–13% volume. The best baseload hedge cuts variance by about a third, but the worst month is still 43% below budget: the case for shaped products, PPAs priced on capture and co-located storage.
 
+## GB balancing and wind imbalance
+
+A second module looks at real-time balancing in Great Britain: how the
+cash-out (imbalance) price relates to the traded market, and what a day-ahead
+wind forecast error costs when it is settled at that price.
+
+**Data** (Elexon BMRS API, half-hourly settlement periods, UK time):
+
+| Series | Dataset | Window |
+|---|---|---|
+| System price and net imbalance volume (NIV) | DISEBSP | Jan 2024 to Oct 2026 |
+| Market index price, APX (volume-weighted short-term traded price) | MID | Jan 2024 to Oct 2026 |
+| Wind outturn, onshore + offshore | AGWS | Jan 2025 to Oct 2026 |
+| Day-ahead wind forecast, onshore + offshore | DGWS | Jan 2025 to Oct 2026 |
+
+Contains BMRS data © Elexon Limited copyright and database right 2026
+([licence](https://www.elexon.co.uk/bsc/data/balancing-mechanism-reporting-agent/copyright-licence-bmrs-data/)).
+
+**Method.**
+- GB has a single imbalance price: the system sell and buy prices were equal in every one of the 49,680 periods. NIV > 0 means the system was short.
+- A wind portfolio that sells its day-ahead forecast F at the market index price and settles the difference to outturn A at the system price SP earns F × MID + (A − F) × SP. Against a perfect forecast its imbalance cost is (F − A) × (SP − MID).
+- The mean cost per period splits into forecast bias × average premium and the covariance of forecast error with the premium (the wrong-way term: under-delivering when the system is short).
+
+**Results** (`output/gb_yearly.csv`, `gb_spread_by_niv.csv`, `gb_wind_imbalance_monthly.csv`, `gb_summary.json`):
+
+| | 2024 | 2025 | 2026 (Jan to Oct) |
+|---|---|---|---|
+| System price, mean (GBP/MWh) | 71.2 | 80.6 | 108.0 |
+| System price, max | 669 | 2,900 | 800 |
+| Share of periods system short | 47.6% | 46.0% | 47.7% |
+| SP − MID when short / long (GBP/MWh) | +19.6 / −18.2 | +22.2 / −17.6 | +21.7 / −18.9 |
+| Wind capture vs time-weighted MID | — | 0.90 | 0.89 |
+| Day-ahead wind forecast MAE, % of mean output | — | 18.6% | 23.9% |
+| Imbalance cost, GBP per MWh of wind | — | 0.44 | 0.26 |
+| of which wrong-way term | — | 0.33 | 0.14 |
+
+- **The sign of the imbalance sets the cash-out premium more than its size.** Short periods average about £20/MWh above the market index; long periods about £18 below. The premium only creeps up with the size of the imbalance: +£20 at 0–250 MWh short to +£28 above 1,000 MWh (`gb_spread_by_niv.png`). Spikes are rare: 0.06% of periods above £500.
+- In 11.5% of periods the system price equalled the market index exactly (15.3% when long, 7.2% when short).
+- **The national day-ahead wind forecast runs high.** It averaged 1.8 GW above outturn in 2025–26, about 18% of mean output. Part of this is likely wind curtailed for transmission constraints, which lowers metered outturn but is paid through the Balancing Mechanism, not settled as imbalance (not tested here).
+- **At national scale the imbalance cost is small:** £0.36 per MWh of wind over Jan 2025 to Oct 2026, 0.4% of output value at the market index; two-thirds of it is the wrong-way term. The monthly range was −£1.73 to +£1.99 per MWh (`gb_wind_imbalance_cost.png`).
+
+**Caveats.**
+- This is the national wind portfolio. A single farm's forecast error is far less diversified, so its imbalance cost is higher; this does not measure it.
+- MID (APX) is a short-term traded index, not the day-ahead auction price, so "sell the forecast at MID" is a simplification.
+- The wind forecast is the latest day-ahead publication (around 16:45 the day before), after the GB day-ahead auctions close.
+- AGWS wind outturn is inconsistent through 2024 (June 2024 averages about 3.6 GW against about 8.3 GW in both the day-ahead forecast and FUELHH transmission-metered wind), so the wind analysis starts in January 2025.
+- Curtailment and Balancing Mechanism payments to wind are not modelled.
+
 ## Caveats
 
 - Since 1 October 2025 the day-ahead market clears in 15-minute periods; hourly averages smooth intra-hour negatives, so negative-hour counts from Q4 2025 onward can differ from counts on 15-minute data.
@@ -85,5 +133,6 @@ What it shows:
 ```
 uv sync
 uv run python scripts/run_analysis.py   # fetches and caches data/ on first run
+uv run python scripts/run_gb.py         # GB balancing module (Elexon BMRS, no key)
 uv run pytest
 ```

@@ -1,0 +1,34 @@
+{
+  "price_period": [
+    "2024-01-01",
+    "2026-10-31"
+  ],
+  "wind_period": [
+    "2025-01-01",
+    "2026-10-31"
+  ],
+  "periods": 49680,
+  "single_price_check_ssp_eq_sbp": true,
+  "niv_regression_all": {
+    "gbp_per_gw": 47.374284782139746,
+    "t": 30.14121263828425,
+    "r2": 0.16139812742382575,
+    "n": 49656
+  },
+  "wind_all": {
+    "wind_periods": 31025,
+    "wind_mean_mw": 9655.344143529412,
+    "wind_capture_vs_mid": 0.8984745026553907,
+    "wind_fc_mae_pct_of_mean": 0.20952058020285036,
+    "wind_fc_bias_mw": 1775.2045743110393,
+    "corr_err_niv": 0.03418638653503522,
+    "imbalance_cost_gbp_per_mwh": 0.3602609892635593,
+    "imbalance_cost_pct_of_value": 0.004352054146968683,
+    "bias_term_gbp_per_mwh": 0.11627155665774153,
+    "wrong_way_term_gbp_per_mwh": 0.24398943260581774
+  },
+  "worst_month": "2025-01",
+  "worst_month_cost": 1.989703070981285,
+  "worst_month_wrong_way": "2026-08",
+  "worst_month_wrong_way_cost": 0.8419668182820288
+}
