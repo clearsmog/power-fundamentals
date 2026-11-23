@@ -111,14 +111,16 @@ def _mid_month(a: str, b: str) -> pd.DataFrame:
     )
 
 
-def _wind_month(a: str, b: str, path: str, extra: dict) -> pd.DataFrame:
+def _wind_month(
+    a: str, b: str, path: str, extra: dict, business: str = "Wind generation"
+) -> pd.DataFrame:
     rows = []
     for s, e in _windows(a, b):
         # "to" only reaches the first period of its day, so ask for one extra day
         to = f"{e + pd.Timedelta(days=1):%Y-%m-%d}"
         rows += _get(path, {"from": f"{s:%Y-%m-%d}", "to": to, **extra})["data"]
     df = pd.DataFrame(rows)
-    df = df[df["businessType"] == "Wind generation"].copy()
+    df = df[df["businessType"] == business].copy()
     df["start"] = pd.to_datetime(df["startTime"], utc=True)
     df = df[_in_month(df["start"], a, b)]
     df["publish"] = pd.to_datetime(df["publishTime"], utc=True)
@@ -173,6 +175,41 @@ def fetch_gb(start: str, end: str) -> pd.DataFrame:
     # an APX index with no traded volume is not a price
     df.loc[df["mid_volume"] <= 0, "mid"] = np.nan
     return df
+
+
+def fetch_solar(start: str, end: str) -> pd.DataFrame:
+    """Half-hourly GB solar outturn and latest day-ahead solar forecast (MW), Elexon AGWS / DGWS."""
+    out, fc = [], []
+    for m in _months(start, end):
+        a, b = _month_bounds(m, start, end)
+        out.append(
+            _cached(
+                "solar_outturn",
+                m,
+                lambda: _wind_month(
+                    a, b, "/generation/actual/per-type/wind-and-solar", {},
+                    business="Solar generation",
+                ),
+            )
+        )
+        fc.append(
+            _cached(
+                "solar_dayahead",
+                m,
+                lambda: _wind_month(
+                    a, b, "/forecast/generation/wind-and-solar/day-ahead",
+                    {"processType": "day ahead"}, business="Solar generation",
+                ),
+            )
+        )
+
+    def cat(parts, name):
+        return (
+            pd.concat(parts).drop_duplicates("start", keep="last")
+            .set_index("start").sort_index()["quantity"].rename(name)
+        )
+
+    return pd.concat([cat(out, "solar"), cat(fc, "solar_fc")], axis=1)
 
 
 # --- metrics -----------------------------------------------------------------

@@ -120,6 +120,171 @@ Contains BMRS data © Elexon Limited copyright and database right 2026
 - AGWS wind outturn is inconsistent through 2024 (June 2024 averages about 3.6 GW against about 8.3 GW in both the day-ahead forecast and FUELHH transmission-metered wind), so the wind analysis starts in January 2025.
 - Curtailment and Balancing Mechanism payments to wind are not modelled.
 
+## GB deal pricing: solar PPAs and battery floors and tolls
+
+A third module prices the contracts an energy trader writes for GB renewable and
+storage assets: a balancing (route-to-market) PPA fee for a solar farm, a fixed-price
+pay-as-produced solar PPA, and a revenue floor and toll for a battery. It then puts a
+solar PPA and a battery toll in one book. A one-page deal memo built from these
+numbers is in [`docs/deal_memo.md`](docs/deal_memo.md).
+
+Notional assets: a 40 MW solar farm with the national PV_Live output profile, and a
+2-hour battery (results per MW; 20 MW / 40 MWh in the portfolio). Window: January 2024
+to October 2026, half-hourly.
+
+**Data** (all public, no key):
+
+| Series | Source |
+|---|---|
+| System price, NIV, market index (MID, APX) | Elexon BMRS, as above |
+| GB solar outturn and latest day-ahead solar forecast | Elexon BMRS (AGWS / DGWS, solar) |
+| National solar output and installed capacity | [PV_Live](https://www.solar.sheffield.ac.uk/pvlive/), Sheffield Solar, University of Sheffield |
+| DC / DM / DR clearing prices per EFA block | [NESO data portal](https://www.neso.energy/data-portal/eac-auction-results), EAC results summary (Nov 2023 onward), OGL |
+| Forward baseload: winter 2026/27 Baseload Market Reference Price (LEBA forward-season trades) | [Low Carbon Contracts Company](https://www.lowcarboncontracts.uk/data-portal/dataset/forecast-market-reference-prices), forecast market reference prices, OGL |
+
+Run: `uv run python scripts/run_pricing.py` (first run fetches and caches `data/gb/` and
+`data/gb_pricing/`, then takes a few minutes for about 8,000 daily battery LPs; the daily battery results
+are cached in `output/gb_pricing_bess_daily.csv`, so delete that file to re-run them).
+
+### A. Solar balancing PPA fee
+
+The offtaker pays the market index for every metered MWh and sells the farm's
+day-ahead forecast, so it carries (forecast − actual) × (system price − MID). A single
+site's forecast error is modelled as the national day-ahead solar error plus a
+site-specific AR(1) error proportional to output, sized to an assumed daylight nMAE
+(4%, 6% or 8% of capacity; the national forecast's own nMAE is 2.6%), 30 random paths
+each.
+
+| Case | Expected imbalance cost | 2024 / 2025 / 2026 | Risk charge | Fee (GBP/MWh) |
+|---|---|---|---|---|
+| National solar fleet | 0.79 | 0.96 / 0.94 / 0.45 | 0.02 | 0.81 |
+| Site, nMAE 4% | 0.80 | 0.95 / 0.96 / 0.47 | 0.04 | 0.84 |
+| Site, nMAE 6% | 0.81 | 0.95 / 0.98 / 0.48 | 0.05 | 0.87 |
+| Site, nMAE 8% | 0.81 | 0.94 / 0.99 / 0.48 | 0.07 | 0.88 |
+
+- **The expected cost comes from the national error, not the site's own.** Doubling the
+  site error (4% → 8%) adds only £0.01/MWh of expected cost, because a site-specific
+  miss is as likely to fall in a long period as a short one. What it adds is variance,
+  so the risk charge grows from £0.04 to £0.07.
+- Per MWh, solar's imbalance cost is about twice the £0.36 measured for national wind
+  in the module above (different windows: 2024–26 here, 2025–26 there).
+- The fee here covers imbalance only: no operating cost, credit or margin, and no
+  value for embedded benefits or REGOs.
+
+### B. Fixed-price solar PPA (10 years)
+
+Monte Carlo, 20,000 paths. Each simulated year takes every calendar month from a
+randomly chosen historical year (2024–2026), so solar output, capture ratio and
+battery revenue stay jointly consistent within a month. The price level follows a
+lognormal random walk (15% a year) around a forward anchor: LCCC's winter 2026/27
+BMRP, **£110.3/MWh**, converted to an annual baseload of **£106.7/MWh** with the
+historical monthly shape.
+
+| Waterfall (GBP/MWh) | |
+|---|---|
+| Forward baseload, annual | 106.7 |
+| Solar shape and cannibalisation (capture ratio 0.83, falling 1% a year) | −18.5 |
+| Imbalance (site nMAE 6%) | −0.8 |
+| Risk charge: 10% × (mean − CVaR 5% of NPV) | −3.8 |
+| **Fixed price** | **83.5** |
+
+Measured GB solar capture ratio against MID: 0.89 (2024), 0.82 (2025), 0.82 (2026 to
+October); 7–8% of solar output in 2025–26 fell in negative-price periods.
+
+| Sensitivity | Fixed price |
+|---|---|
+| Base | 83.5 |
+| No cannibalisation drift | 86.9 |
+| Capture ratio falling 2% a year | 80.4 |
+| Price-level volatility 10% / 25% | 84.5 / 81.9 |
+| Site nMAE 8% | 83.5 |
+
+### C. Battery revenue, floor and toll
+
+One linear programme per day (HiGHS): wholesale trading against the half-hourly MID
+plus capacity held in DC, DM and DR, each sold as a symmetric low + high pair per EFA
+block with the energy each service needs held in reserve. 88% round-trip efficiency, at
+most 1.5 cycles a day, starting and ending each day half full. Two foresight cases:
+perfect (an upper bound) and persistence (plan on yesterday's prices, settle at
+today's).
+
+| 2-hour battery, GBP/MW/yr | 2024 | 2025 | 2026 (to Oct) | Response share |
+|---|---|---|---|---|
+| Wholesale only, perfect foresight | 34,900 | 40,200 | 47,300 | 0% |
+| Wholesale only, persistence | 14,200 | 18,600 | 21,400 | 0% |
+| Stacked, perfect foresight | 58,300 | 108,500 | 98,200 | 83% |
+| Stacked, response ≤ 50% of power, perfect foresight | 49,500 | 77,300 | 75,500 | 57% |
+| Stacked, response ≤ 50% of power, persistence | 32,000 | 60,900 | 55,500 | 77% |
+
+- With no limit, response pays more than trading: the optimiser holds the battery in
+  Regulation and Moderation most of the time. That treats one battery as a price-taker
+  in markets that clear at most about 0.5 GW (DM, DR) and 1.5 GW (DC) per product and direction, so the
+  contract base case caps response at half the battery's power (an assumption).
+- For September 2025 to August 2026 the capped case earns **£69,500/MW/yr** with
+  perfect foresight and **£53,000** with persistence. Modo Energy's GB 2-hour index for
+  the same months averaged £69k, with the day-ahead TB2 spread implying £46k
+  ([Modo](https://modoenergy.com/research/gb-bess-revenue-swaps-fca-regulated-index)).
+  The model brackets the index; it does not include the Balancing Mechanism, which the
+  index does.
+
+Contracts are priced on the capped persistence revenues (conservative for the
+optimiser), 5 years, 7% discount rate, risk charge 10% × the tail beyond the mean
+(CVaR 95%). Simulated annual revenue: P5 £29,900, P50 £47,400, P95 £73,800 per MW.
+
+| Floor (GBP/MW/yr) | Years triggered | Expected top-up | With risk charge |
+|---|---|---|---|
+| 30,000 | 5% | 175 | 410 |
+| 40,000 | 26% | 1,500 | 2,300 |
+| 50,000 | 58% | 5,650 | 6,990 |
+| 60,000 | 82% | 12,800 | 14,420 |
+
+Toll: expected revenue £49,100, less a £1,800 risk charge: **£47,300/MW/yr** fixed.
+
+### D. Portfolio: 40 MW solar PPA + 20 MW / 40 MWh battery toll
+
+Both contracts at the prices above, on the same 20,000 paths, 10 years.
+
+| Offtaker NPV, GBP m | Mean | Std | P5 |
+|---|---|---|---|
+| Solar PPA | 0.92 | 5.89 | −7.00 |
+| Battery toll | 0.30 | 1.94 | −2.29 |
+| Together | 1.22 | 7.82 | −9.28 |
+| Together, plus 4.3 MW baseload sold forward | 1.18 | 0.18 | 0.91 |
+
+- **The two contracts do not hedge each other.** Both leave the offtaker long the
+  price level, so their NPVs move together (correlation 0.99). In history the monthly
+  solar value and battery revenue are also positively correlated (0.21; 0.46 after
+  removing the seasonal pattern).
+- Selling 4.3 MW of flat baseload forward removes the price-level risk. The residual
+  £0.18m standard deviation is what the model has left: shape, volume and battery-spread
+  risk. This overstates real hedge effectiveness, because the model's forward and spot
+  levels share one random walk (no basis risk) and battery revenue is assumed to scale
+  with the price level.
+
+| Scenario, expected NPV, GBP m | Solar | Battery | Book |
+|---|---|---|---|
+| Base | 0.92 | 0.30 | 1.22 |
+| Prices −30% | −5.47 | −1.77 | −7.24 |
+| Prices +30% | 7.31 | 2.37 | 9.68 |
+| Capture ratio −10% | −1.21 | 0.30 | −0.91 |
+| Battery revenue −30% | 0.92 | −1.77 | −0.85 |
+
+### Assumptions and limits
+
+| Item | Value | Status |
+|---|---|---|
+| Site forecast error | daylight nMAE 4–8% of capacity, AR(1) ρ = 0.95 per half-hour | chosen |
+| Forward curve | one winter BMRP, flat in real terms after; monthly shape from 2024–26 | chosen; no free GB forward curve |
+| Price-level volatility | 15% a year | chosen |
+| Capture-ratio drift | −1% a year | chosen; measured ratio fell from 0.89 to 0.82 over 2024–26 |
+| Battery | 88% RTE, 1.5 cycles/day, response ≤ 50% of power | chosen |
+| Discount rate, cost of capital, tail | 7%, 10%, CVaR 95% | chosen |
+| Prices | MID (APX short-term index), not the day-ahead auctions | data limit |
+| Not modelled | Balancing Mechanism, intraday, Capacity Market, network charges, degradation, curtailment, credit, REGOs, embedded benefits | |
+
+Three years of history is a short sample for a 10-year contract, and month-by-month
+resampling cannot produce a regime the sample never saw.
+
 ## Caveats
 
 - Since 1 October 2025 the day-ahead market clears in 15-minute periods; hourly averages smooth intra-hour negatives, so negative-hour counts from Q4 2025 onward can differ from counts on 15-minute data.
@@ -134,5 +299,6 @@ Contains BMRS data © Elexon Limited copyright and database right 2026
 uv sync
 uv run python scripts/run_analysis.py   # fetches and caches data/ on first run
 uv run python scripts/run_gb.py         # GB balancing module (Elexon BMRS, no key)
+uv run python scripts/run_pricing.py    # GB deal pricing (Elexon, PV_Live, NESO, LCCC)
 uv run pytest
 ```
