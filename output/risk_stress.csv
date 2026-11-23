@@ -1,0 +1,11 @@
+scenario,type,window,pnl
+Gas supply shock: TTF +50%,hypothetical,,2558353.0
+Gas collapse: TTF -30%,hypothetical,,-1535012.0
+"Cold snap: TTF +40%, DE and FR +EUR 60",hypothetical,,-113317.0
+Renewables surge: DE and FR -EUR 50,hypothetical,,1800000.0
+Spread blowout: FR -EUR 40 vs DE,hypothetical,,-576000.0
+Carbon sell-off: EUA -20%,hypothetical,,-241536.0
+"Spark spread widening: DE +EUR 40, TTF -20%",hypothetical,,-3039341.0
+"Dunkelflaute: DE +EUR 130, FR +EUR 60",hypothetical,,-5688000.0
+Worst historical 1-day move for this book,historical,2024-12-11 to 2024-12-12,-6537652.0
+Worst historical 5-day move for this book,historical,2024-12-05 to 2024-12-12,-13930816.0

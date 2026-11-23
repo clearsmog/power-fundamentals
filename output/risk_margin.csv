@@ -1,0 +1,5 @@
+scenario,initial_margin,variation_margin,driver,cash_needed,extra_vs_today
+Today,8177480.0,0.0,,8177480.0,0.0
+Price shock,8177480.0,13930816.0,Worst historical 5-day move for this book,22108296.0,13930816.0
+Volatility spike (EWMA vol x2),18478555.0,0.0,,18478555.0,10301075.0
+Margin parameter change (+25%),10221850.0,0.0,,10221850.0,2044370.0

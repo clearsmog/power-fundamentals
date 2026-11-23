@@ -1,0 +1,127 @@
+{
+  "window": "2023-01-03 to 2026-09-29",
+  "business_days": 976,
+  "positions": {
+    "DE": -50400.0,
+    "FR": 14400.0,
+    "TTF": 73300.0,
+    "EUA": 14800.0
+  },
+  "prices_last": {
+    "DE": 165.83,
+    "FR": 166.81,
+    "TTF": 69.81,
+    "EUA": 81.6
+  },
+  "input_checks": {
+    "DE": {
+      "missing": 0,
+      "non_positive": 1,
+      "outlier": 4
+    },
+    "EUA": {
+      "missing": 30,
+      "non_positive": 0,
+      "outlier": 0
+    },
+    "FR": {
+      "missing": 0,
+      "non_positive": 1,
+      "outlier": 1
+    },
+    "TTF": {
+      "missing": 36,
+      "non_positive": 0,
+      "outlier": 7
+    }
+  },
+  "var_today": {
+    "hs": {
+      "var_99": 4008882,
+      "es_975": 4009980
+    },
+    "fhs": {
+      "var_99": 5785886,
+      "es_975": 6202226
+    },
+    "var_scenario_day": "2026-05-04",
+    "var_scenario_by_factor": {
+      "DE": -6710330.0,
+      "FR": 2199981.0,
+      "TTF": 174234.0,
+      "EUA": 0.0
+    },
+    "standalone_var_99": {
+      "DE": 4410853,
+      "FR": 911542,
+      "TTF": 432574,
+      "EUA": 51351
+    },
+    "diversification": 1797438
+  },
+  "backtest": {
+    "hs": {
+      "days": 725,
+      "exceptions": 13,
+      "expected": 7.2,
+      "kupiec_lr": 3.73,
+      "kupiec_p": 0.053,
+      "christoffersen_lr": 1.47,
+      "christoffersen_p": 0.225,
+      "last_250_exceptions": 5,
+      "traffic_light_last_250": "yellow",
+      "mean_var": 3225037,
+      "mean_es": 3282724
+    },
+    "fhs": {
+      "days": 725,
+      "exceptions": 11,
+      "expected": 7.2,
+      "kupiec_lr": 1.69,
+      "kupiec_p": 0.193,
+      "christoffersen_lr": 2.04,
+      "christoffersen_p": 0.153,
+      "last_250_exceptions": 4,
+      "traffic_light_last_250": "green",
+      "mean_var": 3184930,
+      "mean_es": 3349494
+    }
+  },
+  "limits": {
+    "stop_loss_mtd": 10000000.0,
+    "peak_to_trough": 16000000.0,
+    "stop_loss_breaches": [
+      "2024-12-12"
+    ],
+    "drawdown_breaches": [
+      "2024-12-12"
+    ],
+    "days_in_stop_loss_breach": 1,
+    "days_in_drawdown_breach": 1,
+    "max_drawdown": -17638673,
+    "worst_day": -6537652,
+    "worst_day_date": "2024-12-12"
+  },
+  "margin": {
+    "Today": {
+      "initial_margin": 8177480.0,
+      "variation_margin": 0.0,
+      "cash_needed": 8177480.0
+    },
+    "Price shock": {
+      "initial_margin": 8177480.0,
+      "variation_margin": 13930816.0,
+      "cash_needed": 22108296.0
+    },
+    "Volatility spike (EWMA vol x2)": {
+      "initial_margin": 18478555.0,
+      "variation_margin": 0.0,
+      "cash_needed": 18478555.0
+    },
+    "Margin parameter change (+25%)": {
+      "initial_margin": 10221850.0,
+      "variation_margin": 0.0,
+      "cash_needed": 10221850.0
+    }
+  }
+}

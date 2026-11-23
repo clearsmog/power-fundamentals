@@ -1,32 +1,60 @@
-# European power fundamentals monitor
+# European power fundamentals, GB deal pricing and market risk
 
-Hourly day-ahead prices, load and renewable output for Germany, Spain and France,
-January 2023 to September 2026, joined to Dutch TTF gas and EU carbon prices.
-It measures what a renewable asset owner hedging merchant output cares about:
-how much of the baseload price solar and wind actually capture, how often prices
-go negative, where gas sets the price, and what a gas plant earns.
+Hourly day-ahead power prices, load and renewable output for Germany, Spain, France and
+Great Britain, joined to TTF gas, EU carbon, GB balancing and ancillary-service data, all
+public. Five modules answer the questions a power and gas desk asks:
 
-Personal build, public data only.
+1. **Fundamentals** – how much of the baseload price solar and wind capture, how often prices go negative, where gas sets the price, what a gas plant earns.
+2. **Hedging** – how much baseload a solar asset owner should sell forward, and what that leaves unhedged.
+3. **GB balancing** – what the cash-out price adds over the traded market, and what a day-ahead wind forecast error costs.
+4. **GB deal pricing** – a solar balancing fee, a fixed-price solar PPA, a battery floor and toll, and the two in one book.
+5. **Market risk** – VaR and ES with input checks and back-testing, stress scenarios, loss limits and exchange margin for a power and gas book.
+
+Personal build, public data only. Built with AI coding agents (Claude Code). 48 pytest tests.
+
+## Results at a glance
+
+| Module | Headline |
+|---|---|
+| Fundamentals | German solar capture rate fell from **0.76** (2023) to **0.52** (2025); Spain went from **0** negative-price hours in 2023 to **747** in Jan–Sep 2026 |
+| Hedging | Selling **100%** of expected solar output as baseload cuts revenue-vs-budget volatility from **37.6%** to **24.4%**; shape risk, which baseload cannot hedge, is 48–56% of the variance |
+| GB balancing | The cash-out price averages about **£20/MWh** above the market index when the system is short and **£18** below when long; national wind imbalance costs **£0.36/MWh** |
+| GB deal pricing | Solar balancing fee **£1.58/MWh**; 10-year fixed-price solar PPA **£63.8/MWh** (model); a 2-hour battery planned on a day-ahead forecast earns **87%** of perfect foresight; 5-year toll **£49,700/MW/yr** |
+| Market risk | On a sold clean spark spread plus a DE–FR spread, historical-simulation VaR has **13** exceptions in 725 days (7.2 expected); EWMA-filtered HS brings it to **11** and the last 250 days back to the green zone |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/capture-dark.svg">
+  <img alt="Monthly solar capture rate for Germany, Spain and France, 2023 to 2026, and negative-price hours per year" src="docs/img/capture-light.svg">
+</picture>
+
+**Contents:** [Data](#data) · [1. Fundamentals](#1-fundamentals-de-es-fr) · [2. Hedging a solar asset](#2-hedging-a-solar-asset-with-baseload) · [3. GB balancing](#3-gb-balancing-and-wind-imbalance) · [4. GB deal pricing](#4-gb-deal-pricing-solar-ppas-and-battery-floors-and-tolls) · [5. Market risk](#5-market-risk-var-stress-limits-and-margin) · [Caveats](#caveats) · [Run](#run)
 
 ## Data
 
-| Series | Source | Notes |
+| Series | Source | Window |
 |---|---|---|
-| Day-ahead price, load, residual load, solar, wind, gas generation | [Energy-Charts API](https://api.energy-charts.info) (Fraunhofer ISE; ENTSO-E / SMARD), CC BY 4.0 | 15-minute data averaged to hourly; bidding zones DE-LU, ES, FR |
-| TTF front month (EUR/MWh) | Yahoo Finance `TTF=F` | daily close, forward-filled over non-trading days |
-| EUA (EUR/t) | Yahoo Finance `CO2.L` (SparkChange physical EUA ETC) | daily proxy for the EUA price; tracks spot EUA less fees |
+| Day-ahead price, load, residual load, solar, wind, gas generation (DE-LU, ES, FR) | [Energy-Charts API](https://api.energy-charts.info) (Fraunhofer ISE; ENTSO-E / SMARD), CC BY 4.0. 15-minute data averaged to hourly, CET | Jan 2023 – Sep 2026 |
+| TTF front month (EUR/MWh) | Yahoo Finance `TTF=F`, daily close | Jan 2023 – Sep 2026 |
+| EUA (EUR/t) | Yahoo Finance `CO2.L` (SparkChange physical EUA ETC), a daily proxy that tracks spot EUA less fees | Jan 2023 – Sep 2026 |
+| GB system price, net imbalance volume, market index (MID), wind and solar outturn and day-ahead forecasts | Elexon BMRS (DISEBSP, MID, AGWS, DGWS), half-hourly | Jan 2024 – Oct 2026 |
+| GB day-ahead hourly auction price (N2EX) | [NESO data portal](https://www.neso.energy/data-portal/day-ahead-power-exchange-prices-nordpool), Nord Pool prices republished under the EU transparency rules | Oct 2021 – Oct 2026 |
+| GB national solar output and installed capacity | [PV_Live](https://www.solar.sheffield.ac.uk/pvlive/), Sheffield Solar | Oct 2021 – Oct 2026 |
+| DC / DM / DR clearing prices per EFA block | [NESO](https://www.neso.energy/data-portal/eac-auction-results), EAC results summary, OGL | Nov 2023 – Oct 2026 |
+| Forward anchor: winter 2026/27 Baseload Market Reference Price | [Low Carbon Contracts Company](https://www.lowcarboncontracts.uk/data-portal/dataset/forecast-market-reference-prices), OGL | published Nov 2026 |
 
-All three markets are grouped by CET delivery time.
+Contains BMRS data © Elexon Limited copyright and database right 2026
+([licence](https://www.elexon.co.uk/bsc/data/balancing-mechanism-reporting-agent/copyright-licence-bmrs-data/)).
 
-## Method
+## 1. Fundamentals (DE, ES, FR)
 
+**Method.**
 - **Capture rate** = generation-weighted average price ÷ time-weighted (baseload) price.
 - **Gas SRMC** (CCGT short-run marginal cost) = (TTF + 0.202 × EUA) ÷ 0.4913, the standard clean-spark-spread convention (49.13% efficiency, 0.202 tCO2 per MWh of gas).
-- **Clean spark spread** = daily baseload price − gas SRMC.
+- **Clean spark spread** = baseload price − gas SRMC.
 - **Gas near the margin** = share of hours with price within ±15% of gas SRMC. A rough proxy only.
 - **Price regression**: hourly OLS of price on gas SRMC and residual load (GW), by market and year, with HAC (Newey-West, 24 lags) errors.
 
-## Results (2026 = January to September)
+**Results** (2026 = January to September):
 
 | Market | Year | Baseload (EUR/MWh) | Solar capture rate | Wind capture rate | Negative-price hours | Regression R² | +1 GW residual load (EUR/MWh) |
 |---|---|---|---|---|---|---|---|
@@ -45,15 +73,18 @@ All three markets are grouped by CET delivery time.
 
 Full table: `output/yearly_fundamentals.csv`; regressions: `output/price_regression.json`.
 
-What it shows:
-
 - **Solar cannibalisation.** The German solar capture rate fell from 0.76 in 2023 to 0.52 in 2025, and Spain's from 0.84 to 0.55. A pay-as-produced solar PPA priced off baseload now earns roughly half of it.
 - **Negative prices spread south.** Spain had no negative hour in 2023 and 747 in the first nine months of 2026.
 - **Wind holds up.** Wind capture rates stay at 0.84 to 0.97, because wind output is less concentrated in the cheapest hours than solar.
 - **Merit order.** Residual load and gas SRMC explain 53% to 77% of hourly price variance. In Germany each extra GW of residual load adds about EUR 3/MWh, and the curve steepens sharply above about 45 GW (`output/de_merit_order_q3_2026.png`).
-- **Gas plant economics follow a duck curve.** The German clean spark spread averages negative in both baseload and the 08:00–20:00 weekday peak block, because solar depresses the midday hours (2025 mean at 13:00: EUR −57/MWh). A standard CCGT earns in the morning and evening ramps instead (2025 mean at 19:00: EUR +33/MWh): the spread was positive in 37% of 2025 hours, averaging EUR +28/MWh in those hours (`scripts/export_web.py`).
+- **Gas plant economics follow a duck curve.** The German clean spark spread averages negative in both baseload and the 08:00–20:00 weekday peak block, because solar depresses the midday hours (2025 mean at 13:00: EUR −57/MWh). A standard CCGT earns in the morning and evening ramps instead (2025 mean at 19:00: EUR +33/MWh): the spread was positive in 37% of 2025 hours, averaging EUR +28/MWh in those hours.
 
-## Hedging a solar asset with baseload futures
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/spark-spread-dark.svg">
+  <img alt="German clean spark spread by hour of day, 2023 to 2026: negative at midday, positive in the evening ramp" src="docs/img/spark-spread-light.svg">
+</picture>
+
+## 2. Hedging a solar asset with baseload
 
 `powerfund/hedge.py` backtests a notional 100 MW German solar asset (hourly output = national solar output ÷ installed AC capacity, from Energy-Charts) over the 33 months January 2024 – September 2026. Each month the owner sells a baseload forward for h × expected output and is judged on revenue versus a budget set at the start of the month:
 
@@ -69,26 +100,17 @@ What it shows:
 | **100%** | **24.4%** | −43.2% |
 | Capture-weighted (≈72%) | 29.2% | −44.9% |
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/hedge-dark.svg">
+  <img alt="Revenue-vs-budget volatility and worst month against the share of expected output sold forward as baseload" src="docs/img/hedge-light.svg">
+</picture>
+
 - **Hedge volume, not value.** The variance-minimising ratio is 80–110% of expected volume across three forward proxies (previous month, trailing three months, seasonally adjusted). Hedging only the capture-weighted share leaves more risk. The reason: solar's capture price moves almost one-for-one in euros with baseload (slope 0.95), so the shape discount behaves like a fixed euro amount rather than a fixed percentage, and price surprises and capture surprises are positively correlated (0.48).
 - **Shape is the largest risk, and baseload cannot hedge it.** Of the unhedged revenue variance, 48–56% is shape (capture rate vs expectation), 31–44% price and 8–13% volume. The best baseload hedge cuts variance by about a third, but the worst month is still 43% below budget: the case for shaped products, PPAs priced on capture and co-located storage.
 
-## GB balancing and wind imbalance
+## 3. GB balancing and wind imbalance
 
-A second module looks at real-time balancing in Great Britain: how the
-cash-out (imbalance) price relates to the traded market, and what a day-ahead
-wind forecast error costs when it is settled at that price.
-
-**Data** (Elexon BMRS API, half-hourly settlement periods, UK time):
-
-| Series | Dataset | Window |
-|---|---|---|
-| System price and net imbalance volume (NIV) | DISEBSP | Jan 2024 to Oct 2026 |
-| Market index price, APX (volume-weighted short-term traded price) | MID | Jan 2024 to Oct 2026 |
-| Wind outturn, onshore + offshore | AGWS | Jan 2025 to Oct 2026 |
-| Day-ahead wind forecast, onshore + offshore | DGWS | Jan 2025 to Oct 2026 |
-
-Contains BMRS data © Elexon Limited copyright and database right 2026
-([licence](https://www.elexon.co.uk/bsc/data/balancing-mechanism-reporting-agent/copyright-licence-bmrs-data/)).
+How the GB cash-out (imbalance) price relates to the traded market, and what a day-ahead wind forecast error costs when it is settled at that price.
 
 **Method.**
 - GB has a single imbalance price: the system sell and buy prices were equal in every one of the 49,680 periods. NIV > 0 means the system was short.
@@ -103,47 +125,45 @@ Contains BMRS data © Elexon Limited copyright and database right 2026
 | System price, max | 669 | 2,900 | 800 |
 | Share of periods system short | 47.6% | 46.0% | 47.7% |
 | SP − MID when short / long (GBP/MWh) | +19.6 / −18.2 | +22.2 / −17.6 | +21.7 / −18.9 |
-| Wind capture vs time-weighted MID | — | 0.90 | 0.89 |
-| Day-ahead wind forecast MAE, % of mean output | — | 18.6% | 23.9% |
-| Imbalance cost, GBP per MWh of wind | — | 0.44 | 0.26 |
-| of which wrong-way term | — | 0.33 | 0.14 |
+| Wind capture vs time-weighted MID | – | 0.90 | 0.89 |
+| Day-ahead wind forecast MAE, % of mean output | – | 18.6% | 23.9% |
+| Imbalance cost, GBP per MWh of wind | – | 0.44 | 0.26 |
+| of which wrong-way term | – | 0.33 | 0.14 |
 
-- **The sign of the imbalance sets the cash-out premium more than its size.** Short periods average about £20/MWh above the market index; long periods about £18 below. The premium only creeps up with the size of the imbalance: +£20 at 0–250 MWh short to +£28 above 1,000 MWh (`gb_spread_by_niv.png`). Spikes are rare: 0.06% of periods above £500.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/gb-balancing-dark.svg">
+  <img alt="GB system price minus market index by size of net imbalance, and monthly national wind imbalance cost split into bias and wrong-way terms" src="docs/img/gb-balancing-light.svg">
+</picture>
+
+- **The sign of the imbalance sets the cash-out premium more than its size.** Short periods average about £20/MWh above the market index; long periods about £18 below. The premium only creeps up with the size of the imbalance: +£20 at 0–250 MWh short to +£28 above 1,000 MWh. Spikes are rare: 0.06% of periods above £500.
 - In 11.5% of periods the system price equalled the market index exactly (15.3% when long, 7.2% when short).
 - **The national day-ahead wind forecast runs high.** It averaged 1.8 GW above outturn in 2025–26, about 18% of mean output. Part of this is likely wind curtailed for transmission constraints, which lowers metered outturn but is paid through the Balancing Mechanism, not settled as imbalance (not tested here).
-- **At national scale the imbalance cost is small:** £0.36 per MWh of wind over Jan 2025 to Oct 2026, 0.4% of output value at the market index; two-thirds of it is the wrong-way term. The monthly range was −£1.73 to +£1.99 per MWh (`gb_wind_imbalance_cost.png`).
+- **At national scale the imbalance cost is small:** £0.36 per MWh of wind over Jan 2025 to Oct 2026, 0.4% of output value at the market index; two-thirds of it is the wrong-way term. The monthly range was −£1.73 to +£1.99 per MWh.
 
-**Caveats.**
+<details>
+<summary>Caveats for this module</summary>
+
 - This is the national wind portfolio. A single farm's forecast error is far less diversified, so its imbalance cost is higher; this does not measure it.
 - MID (APX) is a short-term traded index, not the day-ahead auction price, so "sell the forecast at MID" is a simplification.
 - The wind forecast is the latest day-ahead publication (around 16:45 the day before), after the GB day-ahead auctions close.
 - AGWS wind outturn is inconsistent through 2024 (June 2024 averages about 3.6 GW against about 8.3 GW in both the day-ahead forecast and FUELHH transmission-metered wind), so the wind analysis starts in January 2025.
 - Curtailment and Balancing Mechanism payments to wind are not modelled.
 
-## GB deal pricing: solar PPAs and battery floors and tolls
+</details>
 
-A third module prices the contracts an energy trader writes for GB renewable and
-storage assets: a balancing (route-to-market) fee for a solar farm, a fixed-price
-pay-as-produced solar PPA, and a revenue floor and toll for a battery. It then puts a
-solar PPA and a battery toll in one book. A one-page deal memo built from these
-numbers is in [`docs/deal_memo.md`](docs/deal_memo.md).
+## 4. GB deal pricing: solar PPAs and battery floors and tolls
 
+Prices the contracts an energy trader writes for GB renewable and storage assets: a
+balancing (route-to-market) fee for a solar farm, a fixed-price pay-as-produced solar PPA,
+and a revenue floor and toll for a battery, then puts a solar PPA and a battery toll in one
+book. A one-page deal memo built from these numbers is in [`docs/deal_memo.md`](docs/deal_memo.md).
 Notional assets: a 40 MW solar farm with the national PV_Live output profile, and a
 2-hour battery (results per MW; 20 MW / 40 MWh in the portfolio).
 
-**Data** (all public, no key):
-
-| Series | Source | Window |
-|---|---|---|
-| GB day-ahead hourly auction price (N2EX) | [NESO data portal](https://www.neso.energy/data-portal/day-ahead-power-exchange-prices-nordpool), Nord Pool prices republished under the EU transparency rules | Oct 2021 – Oct 2026 |
-| National solar output and installed capacity | [PV_Live](https://www.solar.sheffield.ac.uk/pvlive/), Sheffield Solar, University of Sheffield | Oct 2021 – Oct 2026 |
-| System price; GB solar outturn and latest day-ahead solar forecast | Elexon BMRS (DISEBSP, AGWS / DGWS) | Jan 2024 – Oct 2026 |
-| DC / DM / DR clearing prices per EFA block | [NESO](https://www.neso.energy/data-portal/eac-auction-results), EAC results summary, OGL | Nov 2023 – Oct 2026 |
-| Forward baseload: winter 2026/27 Baseload Market Reference Price (LEBA forward-season trades) | [Low Carbon Contracts Company](https://www.lowcarboncontracts.uk/data-portal/dataset/forecast-market-reference-prices), OGL | published Nov 2026 |
-
-Run: `uv run python scripts/run_pricing.py`. The first run fetches and caches `data/gb/`
-and `data/gb_pricing/`, then solves about 12,000 daily battery LPs; the daily battery
-results are cached in `output/gb_pricing_bess_daily.csv` (delete it to re-run them).
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/gb-pricing-dark.svg">
+  <img alt="Fixed-price solar PPA waterfall from forward baseload to 63.8 GBP/MWh, and 2-hour battery revenue by information case against the Modo index" src="docs/img/gb-pricing-light.svg">
+</picture>
 
 ### A. Solar balancing PPA fee
 
@@ -179,6 +199,9 @@ contract year's installed solar: a straight line from 25 GW (October 2026) to th
 Power 2030 floor of 45 GW at the end of 2030 (28 GW in 2027, 46 GW in 2031), then 2 GW a
 year (56 GW in 2036). The plan's 45–47 GW is on DESNZ's basis, not PV_Live's.
 
+<details>
+<summary>GB solar by year: baseload, capture ratio, negative hours</summary>
+
 | Year | Baseload (DA) | Solar capture ratio | Negative hours | Share of solar output at negative prices | Installed GW (mean) |
 |---|---|---|---|---|---|
 | 2022 | 204.3 | 1.01 | 29 | 0.2% | 14.5 |
@@ -186,6 +209,8 @@ year (56 GW in 2036). The plan's 45–47 GW is on DESNZ's basis, not PV_Live's.
 | 2024 | 72.6 | 0.90 | 176 | 4.2% | 17.9 |
 | 2025 | 80.7 | 0.84 | 177 | 4.4% | 20.7 |
 | 2026 (to Oct) | 107.4 | 0.86 | 95 | 3.5% | 23.8 |
+
+</details>
 
 **Pricing.** Monte Carlo, 20,000 paths: each simulated year takes every calendar month
 from a randomly chosen historical year (Oct 2021 – Oct 2026), so a month's output and
@@ -313,7 +338,8 @@ and battery history, 10 years.
 | Capture ratio −10% | −1.01 | 0.32 | −0.69 |
 | Battery revenue −30% | 0.64 | −1.86 | −1.23 |
 
-### Assumptions and limits
+<details>
+<summary>Assumptions and limits of the pricing module</summary>
 
 | Item | Value | Status |
 |---|---|---|
@@ -330,6 +356,107 @@ and battery history, 10 years.
 Five years of day-ahead history (three for the battery) is short for a 10-year
 contract, and month-by-month resampling cannot produce a regime the sample never saw.
 
+</details>
+
+Run: `uv run python scripts/run_pricing.py`. The first run fetches and caches `data/gb/`
+and `data/gb_pricing/`, then solves about 12,000 daily battery LPs; the daily battery
+results are cached in `output/gb_pricing_bess_daily.csv` (delete it to re-run them).
+
+## 5. Market risk: VaR, stress, limits and margin
+
+`powerfund/risk.py` runs the daily market-risk process for a notional power and gas
+book on 976 business days of real prices (3 Jan 2023 – 29 Sep 2026): check the inputs,
+compute VaR and ES, back-test them, stress the book, monitor loss limits and estimate the
+cash the exchange would call.
+
+**Book** (EUR; risk factors are daily prices): a sold clean spark spread, short 50 MW of
+German baseload for a 30-day month with the gas and carbon a 49.13% CCGT burns to make
+it, plus a 20 MW France-over-Germany spread.
+
+| Risk factor | Price series | Position |
+|---|---|---|
+| DE power | day-ahead baseload, CET-day mean | −50,400 MWh |
+| FR power | day-ahead baseload, CET-day mean | +14,400 MWh |
+| TTF gas | front month | +73,300 MWh |
+| EUA | `CO2.L` proxy | +14,800 t |
+
+**Input checks** (`output/risk_input_checks.csv`), the ones a VaR run needs before it
+uses a price: missing prices on business days (TTF 36, EUA 30, mostly exchange holidays;
+rolled forward), stale prices (none for three days or more), outlier moves beyond six
+robust standard deviations (DE 4, FR 1, TTF 7) and non-positive prices (DE and FR on 1 May
+2026, daily means of EUR −2.1 and −41.4/MWh). The outliers are real events, kept: the
+German Dunkelflaute of 12 December 2024 (+EUR 129/MWh in a day, then −217) and, among
+the TTF outliers, three days of March 2026. The non-positive days are why moves are **absolute** price changes,
+not returns: a relative or log return is undefined through zero.
+
+**VaR and ES.** One-day historical simulation on the last 250 days, VaR at 99% and ES
+at 97.5% (the FRTB pairing, which gives similar numbers for normal tails). The P&L is
+linear, so each scenario is the price move times the position. Filtered historical
+simulation (FHS) rescales each past move by the ratio of today's EWMA volatility
+(λ = 0.94) to the volatility on that day.
+
+| Today (29 Sep 2026), EUR | VaR 99% | ES 97.5% |
+|---|---|---|
+| Historical simulation | 4.01m | 4.01m |
+| Filtered HS (EWMA) | 5.79m | 6.20m |
+
+Stand-alone VaR is 4.41m for DE power, 0.91m FR, 0.43m TTF and 0.05m EUA: 1.80m of
+diversification, mostly the FR leg offsetting the DE short.
+
+**Back-test** of 725 daily forecasts (no look-ahead: a test changes future moves and
+checks past forecasts stay the same):
+
+| | Exceptions (expected 7.2) | Kupiec POF p-value | Christoffersen independence p-value | Last 250 days | Basel zone |
+|---|---|---|---|---|---|
+| Historical simulation | 13 | 0.053 | 0.225 | 5 | yellow |
+| Filtered HS (EWMA) | 11 | 0.193 | 0.153 | 4 | green |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/var-backtest-dark.svg">
+  <img alt="Daily P&L of the book against one-day 99% VaR from historical simulation and filtered historical simulation, with exceptions marked" src="docs/img/var-backtest-light.svg">
+</picture>
+
+- **Plain HS reacts too slowly.** It has nearly twice the expected exceptions, and its
+  250-day window holds a shock at full weight for a year and then drops it overnight
+  (the steps in the chart). FHS moves with volatility: it more than doubled within days of the
+  Dunkelflaute and fell back by spring 2025, and it passes both tests.
+- Both models missed the Dunkelflaute itself (−EUR 6.5m on 12 December 2024): no
+  250-day history held a move that size.
+
+**Stress scenarios** (`output/risk_stress.csv`) at today's prices: hypothetical gas,
+power, spread and carbon shocks, and the worst actual 1-day and 5-day moves for this
+book. The worst is the five days to the Dunkelflaute, **−EUR 13.9m**, 3.5 times the 1-day
+HS VaR.
+
+**Loss limits** (`output/risk_limits.csv`): a month-to-date stop-loss of EUR 10m and a
+peak-to-trough limit of EUR 16m (chosen, about 3 and 5 times the average VaR). Holding
+the book unchanged, each was breached once, on 12 December 2024; the largest drawdown was
+EUR 17.6m.
+
+**Exchange margin** (`output/risk_margin.csv`), all legs treated as cleared futures:
+initial margin = |position| × a scan range per factor (the 99th percentile of 2-day
+moves over 250 days, no spread credit); variation margin is a day's loss paid in cash.
+
+| Scenario | Initial margin | Variation margin | Cash needed |
+|---|---|---|---|
+| Today | 8.2m | – | 8.2m |
+| Price shock (worst 5-day move) | 8.2m | 13.9m | 22.1m |
+| Volatility spike (EWMA volatility doubled, parametric 2-day 99%) | 18.5m | – | 18.5m |
+| Margin parameter change (+25% on every scan range) | 10.2m | – | 10.2m |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/stress-margin-dark.svg">
+  <img alt="Stress scenario P&L on the book, and cash needed at the exchange today and under three stresses" src="docs/img/stress-margin-light.svg">
+</picture>
+
+**Limits of this module.** Power risk factors are day-ahead prices because there is no
+free history of month-ahead power futures; day-ahead moves are far more volatile than a
+month contract's, so the power VaR here is much larger than a forward book would carry.
+TTF is the front month and EUA an exchange-traded proxy. The book is held constant over
+the whole period. Margin is a scan-range approximation, not an exchange's SPAN or IRM
+model, and gives no credit for offsetting legs. Intraday (ID) positions and limits are
+not modelled.
+
 ## Caveats
 
 - Since 1 October 2025 the day-ahead market clears in 15-minute periods; hourly averages smooth intra-hour negatives, so negative-hour counts from Q4 2025 onward can differ from counts on 15-minute data.
@@ -342,8 +469,20 @@ contract, and month-by-month resampling cannot produce a regime the sample never
 
 ```
 uv sync
-uv run python scripts/run_analysis.py   # fetches and caches data/ on first run
-uv run python scripts/run_gb.py         # GB balancing module (Elexon BMRS, no key)
+uv run python scripts/run_analysis.py   # fundamentals; fetches and caches data/ on first run
+uv run python scripts/run_gb.py         # GB balancing (Elexon BMRS, no key)
 uv run python scripts/run_pricing.py    # GB deal pricing (Elexon, PV_Live, NESO, LCCC)
+uv run python scripts/run_risk.py       # market risk on the cached prices
+uv run python -m scripts.figures        # README figures, light and dark SVG, into docs/img/
 uv run pytest
 ```
+
+| Path | What it holds |
+|---|---|
+| `powerfund/` | `data.py`, `gbdata.py` (fetch and cache), `metrics.py`, `hedge.py`, `gb.py`, `forecast.py`, `bess.py`, `ppa.py`, `sim.py`, `risk.py` |
+| `scripts/` | one runner per module, `figures.py`, `export_web.py` |
+| `output/` | result tables (CSV, JSON) and the original PNG charts |
+| `docs/` | `img/` README figures, `deal_memo.md` |
+| `tests/` | pytest, one file per module |
+
+MIT licence.
