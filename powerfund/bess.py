@@ -7,14 +7,13 @@ low + high pair per 4-hour EFA block (Dynamic Containment 15 min, Moderation 30 
 Regulation 60 min of energy each way). Holding r MW of a pair takes r MW of headroom
 in both directions and r x duration MWh of stored energy and of empty space.
 
-Two foresight cases bound what an optimiser earns from wholesale trading:
-  - perfect foresight: plan on the day's actual prices (an upper bound);
-  - persistence: plan on the previous day's prices by settlement period, then settle
-    that plan at the actual prices (a crude forecast, close to a lower bound).
-Response prices are known when the plan is made (the auctions clear day-ahead).
+A plan is made on one set of prices and settled on another: perfect foresight plans on
+the actual prices (an upper bound); an ex-ante plan uses a price forecast (see
+`forecast.py`) and the previous day's response prices, then settles at the actual ones.
+A rough Balancing Mechanism estimate (`bm_estimate`) can be added on top.
 
-Not modelled: Balancing Mechanism and intraday trading, imbalance, Capacity Market,
-network charges, degradation beyond a throughput cost, availability.
+Not modelled: intraday trading, imbalance, network charges, availability; degradation
+only as a cost per MWh discharged.
 
 Contracts (owner's view; the optimiser / offtaker writes them):
   - floor: the optimiser tops annual revenue R up to F, so it pays max(F - R, 0);
@@ -115,7 +114,8 @@ def dispatch_day(
         raise RuntimeError(res.message)
     x = res.x
     r = x[ir:].reshape(nb, k) if k else np.zeros((nb, 0))
-    return {"c": x[ic:ic + n], "d": x[id_:id_ + n], "s": x[is_:is_ + n], "r": r, "hours": hours}
+    return {"c": x[ic:ic + n], "d": x[id_:id_ + n], "s": x[is_:is_ + n], "r": r, "hours": hours,
+            "block": block}
 
 
 def settle(plan: dict, price: np.ndarray, resp: np.ndarray | None, deg_cost: float = 0.0) -> dict:
@@ -141,9 +141,28 @@ def pair_prices(resp_wide: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def bm_estimate(plan: dict, power: float, da: np.ndarray, sp: np.ndarray, rate: float) -> float:
+    """Rough Balancing Mechanism revenue (GBP) for a plan, after Modo Energy's dispatch-rate method.
+
+    Spare power in each direction (after the wholesale position and response holding) is
+    offered to the BM; a share `rate` of it is accepted, earning the system price's premium
+    over the day-ahead price: offers when SP > DA, bids when SP < DA. Energy is assumed to
+    net out over the day. An estimate, not a dispatch model.
+    """
+    held = plan["r"].sum(axis=1)[plan["block"]] if plan["r"].size else 0.0
+    up = np.clip(power - plan["d"] + plan["c"] - held, 0, None)
+    down = np.clip(power - plan["c"] + plan["d"] - held, 0, None)
+    gain = up * np.clip(sp - da, 0, None) + down * np.clip(da - sp, 0, None)
+    return float(rate * 0.5 * np.nansum(gain))
+
+
 def run_backtest(
-    df: pd.DataFrame,
+    actual: pd.Series,
+    plan_price: pd.Series | None,
     pairs: pd.DataFrame | None,
+    plan_pairs: pd.DataFrame | None = None,
+    sp: pd.Series | None = None,
+    bm_rate: float = 0.0,
     power: float = 1.0,
     energy: float = 2.0,
     rte: float = 0.88,
@@ -151,47 +170,51 @@ def run_backtest(
     deg_cost: float = 0.0,
     resp_cap: float = 1.0,
 ) -> pd.DataFrame:
-    """Daily revenue per MW for perfect-foresight and persistence plans.
+    """Daily revenue per MW: plan on (plan_price, plan_pairs), settle at (actual, pairs).
 
-    df: half-hourly, UTC index, column 'mid'. pairs: pair prices indexed by EFA block start (UTC).
+    Half-hourly UTC series. plan_price None = perfect foresight on prices; plan_pairs None =
+    plan on the actual response prices. sp (system price) adds a BM estimate where present.
+    Days with a missing plan price are skipped.
     """
-    mid = df["mid"].interpolate(limit_direction="both")
-    efa_day, block = efa_blocks(mid.index)
-    if pairs is not None:
-        # each half-hour's block start = first period of its (EFA day, block), as NESO stamps it
-        ts = pd.Series(mid.index, index=mid.index)
+    actual = actual.interpolate(limit_direction="both")
+    plan_price = actual if plan_price is None else plan_price.reindex(actual.index)
+    efa_day, block = efa_blocks(actual.index)
+
+    def per_period(pp):
+        if pp is None:
+            return None
+        ts = pd.Series(actual.index, index=actual.index)
         bstart = ts.groupby([efa_day.to_numpy(), block]).transform("min")
-        per_period = pairs.reindex(pd.DatetimeIndex(bstart)).to_numpy()
-    else:
-        per_period = None
-    out, prev = [], None
-    for day, idx in pd.Series(np.arange(len(mid)), index=efa_day.values).groupby(level=0):
+        return pp.reindex(pd.DatetimeIndex(bstart)).to_numpy()
+
+    act_r = per_period(pairs)
+    plan_r = act_r if plan_pairs is None else per_period(plan_pairs)
+    spv = None if sp is None else sp.reindex(actual.index).to_numpy()
+    a, f = actual.to_numpy(), plan_price.to_numpy()
+    kw = dict(power=power, energy=energy, rte=rte, max_cycles=max_cycles,
+              deg_cost=deg_cost, resp_cap=resp_cap)
+    out = []
+    for day, idx in pd.Series(np.arange(len(actual)), index=efa_day.values).groupby(level=0):
         pos = idx.to_numpy()
-        if len(pos) < 46:
-            prev = None
+        if len(pos) < 46 or np.isnan(f[pos]).any():
             continue
-        p = mid.to_numpy()[pos]
-        b = block[pos]
-        _, b = np.unique(b, return_inverse=True)
-        resp = None
-        if pairs is not None:
-            pp = per_period[pos]
-            if np.isnan(pp).any():
-                prev = p
-                continue
-            resp = np.array([pp[b == j][0] for j in range(b.max() + 1)])
-        kw = dict(power=power, energy=energy, rte=rte, max_cycles=max_cycles,
-                  deg_cost=deg_cost, resp_cap=resp_cap)
-        pf = settle(dispatch_day(p, b, resp, **kw), p, resp, deg_cost)
-        row = {"day": pd.Timestamp(day), "pf_wholesale": pf["wholesale"], "pf_response": pf["response"]}
-        if prev is not None:
-            fc = np.interp(np.linspace(0, 1, len(p)), np.linspace(0, 1, len(prev)), prev)
-            pe = settle(dispatch_day(fc, b, resp, **kw), p, resp, deg_cost)
-            row |= {"pe_wholesale": pe["wholesale"], "pe_response": pe["response"]}
+        _, b = np.unique(block[pos], return_inverse=True)
+        nb = b.max() + 1
+
+        def blocks(arr):
+            if arr is None:
+                return None
+            v = np.nan_to_num(arr[pos], nan=0.0)
+            return np.array([v[b == j][0] for j in range(nb)])
+
+        plan = dispatch_day(f[pos], b, blocks(plan_r), **kw)
+        plan["block"] = b
+        rev = settle(plan, a[pos], blocks(act_r), deg_cost)
+        row = {"day": pd.Timestamp(day), "wholesale": rev["wholesale"], "response": rev["response"]}
+        if spv is not None and not np.isnan(spv[pos]).all():
+            row["bm"] = bm_estimate(plan, power, a[pos], spv[pos], bm_rate)
         out.append(row)
-        prev = p
-    res = pd.DataFrame(out).set_index("day")
-    return res / power
+    return pd.DataFrame(out).set_index("day") / power
 
 
 # --- contract pricing -----------------------------------------------------------

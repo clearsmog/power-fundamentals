@@ -152,3 +152,45 @@ def fetch_lccc_forecast() -> pd.DataFrame:
             "price": df["Forecast_Reference_Price_GBP_per_MWh"].astype(float),
         }
     )
+
+
+N2EX_RESOURCE = "4f27eea5-7038-4f73-9740-e3e4ad47c26a"
+
+
+def fetch_n2ex() -> pd.Series:
+    """N2EX GB day-ahead hourly auction price (GBP/MWh), indexed by UTC hour start.
+
+    NESO republishes Nord Pool's GB day-ahead price (Sept 2021 onward) under the EU
+    transparency rules. Delivery periods are UK local hours; on the autumn clock change
+    the repeated hour appears twice, first in BST.
+    """
+
+    def build():
+        rows, offset = [], 0
+        while True:
+            sql = (
+                f'SELECT "_id","Date","Delivery Period","Price" FROM "{N2EX_RESOURCE}" '
+                f'ORDER BY "_id" LIMIT 10000 OFFSET {offset}'
+            )
+            r = requests.get(NESO_SQL, params={"sql": sql}, timeout=120)
+            r.raise_for_status()
+            batch = r.json()["result"]["records"]
+            rows += batch
+            if len(batch) < 10000:
+                return pd.DataFrame(rows)
+            offset += 10000
+
+    df = _cached("n2ex_da", build)
+    df["_id"] = df["_id"].astype(int)
+    df = df.sort_values("_id")
+    hour = df["Delivery Period"].str[:2].astype(int)
+    local = pd.to_datetime(df["Date"]) + pd.to_timedelta(hour, unit="h")
+    # the repeated autumn hour: first occurrence is BST (DST), the second GMT
+    first = ~local.duplicated(keep="first")
+    idx = pd.DatetimeIndex(local).tz_localize(
+        "Europe/London", ambiguous=first.to_numpy(), nonexistent="NaT"
+    )
+    s = pd.Series(df["Price"].astype(float).to_numpy(), index=idx).dropna()
+    s = s[s.index.notna()]
+    s.index = s.index.tz_convert("UTC")
+    return s[~s.index.duplicated(keep="first")].sort_index().rename("da")

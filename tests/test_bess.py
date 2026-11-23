@@ -59,3 +59,13 @@ def test_response_cap_limits_held_power():
     resp = np.tile([10.0, 10.0, 10.0], (6, 1))
     plan = bess.dispatch_day(price, block, resp, power=1, energy=4, rte=0.9, resp_cap=0.3)
     assert np.all(plan["r"].sum(axis=1) <= 0.3 + 1e-9)
+
+
+def test_bm_estimate_pays_spread_on_spare_power():
+    price, block = _day()
+    plan = bess.dispatch_day(price, block, None, power=1, energy=2, rte=0.81, max_cycles=10)
+    plan["block"] = block
+    sp = price + 10.0  # system always short by 10
+    bm = bess.bm_estimate(plan, 1.0, price, sp, rate=0.03)
+    up = np.clip(1 - plan["d"] + plan["c"], 0, None)
+    assert np.isclose(bm, 0.03 * 0.5 * (up * 10).sum())
